@@ -87,10 +87,7 @@ Class MSIInstaller : Installer {
     hidden [hashtable]$Properties
 
     MSIInstaller([string]$Path) {
-
-        # Load some TypeData
-        Update-TypeData -AppendPath $PSScriptRoot\comObject.types.ps1xml
-
+        
         $this.Path = "msiexec.exe"
         $this.FilePath = $Path
         $this.ValidExitCodes = @(0,3010)
@@ -133,14 +130,14 @@ Class SequenceItem {
 
     SequenceItem([Installer]$Installer) {
         $this.Name = $Installer.Name
-        $NewInstallers = New-Object System.Collections.ArrayList
+        $NewInstallers = [System.Collections.ArrayList]::new()
         $NewInstallers.Add($Installer)
         $this.Installers = $NewInstallers
     }
 
     SequenceItem([string]$Name, [Installer]$Installer) {
         $this.Name = $Name
-        $NewInstallers = New-Object System.Collections.ArrayList
+        $NewInstallers = [System.Collections.ArrayList]::new()
         $NewInstallers.Add($Installer)
         $this.Installers = $NewInstallers
     }
@@ -168,12 +165,12 @@ Class SequenceItem {
 
     [System.Windows.Controls.TreeViewItem]GetTreeViewItem([System.Windows.Controls.TreeViewItem]$Parent){
         $TreeViewItem = [System.Windows.Controls.TreeViewItem]::new()
-        $TreeViewItem.Header = $this.Name
+        $TreeViewItem.Header = ("seq_" + ($this.Name -replace '[\W_]', ""))
         $TreeViewItem.Name = ("seq_" + ($this.Name -replace '[\W_]', ""))
         $TreeViewItem.Tag = ($Parent.Tag + "\" + $this.Name)
         ForEach ($Installer in $this.Installers) {
             $ChildItem = [System.Windows.Controls.TreeViewItem]::new()
-            $ChildItem.Header = $Installer.Name
+            $ChildItem.Header = ("inst_" + ($Installer.Name -replace '[\W_]', ""))
             $ChildItem.Name = ("inst_" + ($Installer.Name -replace '[\W_]', ""))
             $ChildItem.Tag = ($TreeViewItem.Tag + "\" + $Installer.Name)
             $TreeViewItem.Items.Add($ChildItem)
@@ -219,15 +216,61 @@ Class InstallSequence {
 
     [System.Windows.Controls.TreeViewItem]GetTreeViewItem(){
         $TreeViewItem = [System.Windows.Controls.TreeViewItem]::new()
-        $TreeViewItem.Header = $this.Name
+        $TreeViewItem.Header = ("instSeq_" + ($this.Name -replace '[\W_]', ""))
         $TreeViewItem.Name = ("instSeq_" + ($this.Name -replace '[\W_]', ""))
         $TreeViewItem.Tag = $this.Name
         ForEach ($Sequence in $this.Sequence) {
-            [System.Windows.Controls.TreeViewItem]$ChildItem = $Sequence.GetTreeViewItem($TreeViewItem)
+            $ChildItem = $Sequence.GetTreeViewItem($TreeViewItem)
             $ChildItem.Tag = ($TreeViewItem.Tag + "\" + $ChildItem.Tag)
             $TreeViewItem.Items.Add($ChildItem)
         }
         return $TreeViewItem
     }
 
+}
+
+Class PowerInstallerApp {
+
+    PowerInstallerApp([InstallSequence]$InstallSequence) {
+
+        $XAML = @'
+<Window x:Class="PowerInstaller.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:local="clr-namespace:PowerInstaller"
+    mc:Ignorable="d"
+    Title="Power Installer" Height="350" Width="525">
+    <Grid>
+        <TreeView x:Name="twInstallSequence" HorizontalAlignment="Left" Height="300" Margin="10,10,0,0" VerticalAlignment="Top" Width="450"/>
+    </Grid>
+</Window>
+'@
+
+        $XAML = [xml]($XAML -replace 'mc:Ignorable="d"','' -replace "x:Na",'Na' -replace '^<Win.*', '<Window')
+
+        $reader = New-Object System.Xml.XmlNodeReader $xaml
+        try {
+            $Form=[Windows.Markup.XamlReader]::Load( $reader )
+        } catch {
+            Write-Host "Unable to load Windows.Markup.XamlReader. Double-check syntax and ensure .net is installed."
+            Exit
+        }
+        
+        <#
+         # NOT ABLE TO USE THIS IN CLASSES
+         # Load XAML Objects
+         $xaml.SelectNodes("//*[@Name]") | %{Set-Variable -Name "$($_.Name)" -Value $Form.FindName($_.Name)}
+        #>
+
+        # // Initial Bindings
+        $twInstallSequence = $Form.FindName('twInstallSequence')
+        $twInstallSequence.Items.Add($InstallSequence.GetTreeViewItem())
+
+        $Form.Add_SourceInitialized( {            [System.Windows.RoutedEventHandler]$Event = {                            <#if($_.OriginalSource -is [System.Windows.Controls.TreeViewItem]){                    $TreeItem = $_.OriginalSource                    $TreeItem.items.clear()                    $TreeItem.Items.Add($InstallSequence.GetTreeViewItem())                }#>            }            $twInstallSequence.AddHandler([System.Windows.Controls.TreeViewItem]::ExpandedEvent,$Event)        })
+        
+        $Form.ShowDialog() | Out-Null
+
+    }
 }
