@@ -159,6 +159,10 @@ Class DetectionMethod {
         $this.DetectionType = $DetectionType
         $this.Path = $Path
         If ($DetectionType -eq "MSI") {
+
+            # Load some TypeData
+            Update-TypeData -AppendPath $PSScriptRoot\comObject.types.ps1xml
+
             $Installer = New-Object -ComObject WindowsInstaller.Installer
             $InstallerDataBase = $Installer.InvokeMethod("OpenDatabase", (Resolve-Path $Path).Path, 0)
             $View = $InstallerDataBase.InvokeMethod("OpenView", "SELECT `*` FROM `Property` ")
