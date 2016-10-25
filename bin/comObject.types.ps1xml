@@ -1,0 +1,39 @@
+<Types>
+    <Type>
+        <Name>System.__ComObject</Name>
+        <Members>
+            <ScriptMethod>
+                <Name>GetProperty</Name>
+                <Script>
+                    $type = $this.gettype();
+                    $type.invokeMember($args[0],[System.Reflection.BindingFlags]::GetProperty,$null,$this,$null)
+                </Script>
+            </ScriptMethod>
+            <ScriptMethod>
+                <Name>SetProperty</Name>
+                <Script>
+                    $type = $this.gettype();
+                    $type.invokeMember($args[0],[System.Reflection.BindingFlags]::GetProperty,$null,$this,@($args[1]))
+                </Script>
+            </ScriptMethod>
+            <ScriptMethod>
+                <Name>InvokeParamProperty</Name>
+                <Script>
+                    $type = $this.gettype();
+                    $index = $args.count -1 ;
+                    $methodargs=$args[1..$index]
+                    $type.invokeMember($args[0],[System.Reflection.BindingFlags]::GetProperty,$null,$this,$methodargs)
+                </Script>
+            </ScriptMethod>
+            <ScriptMethod>
+                <Name>InvokeMethod</Name>
+                <Script>
+                    $type = $this.gettype();
+                    $index = $args.count -1 ;
+                    $methodargs=$args[1..$index]
+                    $type.invokeMember($args[0],[System.Reflection.BindingFlags]::InvokeMethod,$null,$this,$methodargs)
+                </Script>
+            </ScriptMethod>
+        </Members>
+    </Type>
+</Types>
