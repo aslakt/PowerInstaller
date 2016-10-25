@@ -153,10 +153,24 @@ Class MSIInstaller : Installer {
 Class DetectionMethod {
     [ValidateSet("File", "MSI", "Registry")][string]$DetectionType
     [string]$Path
+    hidden [guid]$ProductCode
 
     DetectionMethod([string]$DetectionType, [string]$Path) {
         $this.DetectionType = $DetectionType
         $this.Path = $Path
+        If ($DetectionType -eq "MSI") {
+            $Installer = New-Object -ComObject WindowsInstaller.Installer
+            $InstallerDataBase = $Installer.InvokeMethod("OpenDatabase", (Resolve-Path $Path).Path, 0)
+            $View = $InstallerDataBase.InvokeMethod("OpenView", "SELECT `*` FROM `Property` ")
+            $View.InvokeMethod("Execute")
+            $Record = $View.InvokeMethod("Fetch")
+            $ProductProperties = [hashtable]::new()
+            While ($Record -ne $null) {
+                $ProductProperties.Add($Record.InvokeParamProperty("StringData", 1), $Record.InvokeParamProperty("StringData", 2))
+                $Record = $View.InvokeMethod("Fetch")
+            }
+            $this.ProductCode = [guid]$ProductProperties.Item("ProductCode")
+        }
     }
 
     [bool]Detected() {
@@ -164,7 +178,7 @@ Class DetectionMethod {
             return (Test-Path $this.Path)
         } elseif ($this.DetectionType -eq "MSI") {
             $Installer = New-Object -ComObject WindowsInstaller.Installer
-            return ($Installer.Productstate($this.Path) -eq 5)
+            return ($Installer.Productstate(("{" + $this.ProductCode + "}")) -eq 5)
         } else {
             return $false
         }        
