@@ -28,14 +28,19 @@ Class Installer {
     [DetectionMethod]$DetectionMethod
     [int[]]$ValidExitCodes
     [string]$FilePath
-    [string[]]$InstallArgumentList
-    [string[]]$UninstallArgumentList
+    [String]$InstallString
+    [String]$UninstallString
+    hidden [string[]]$InstallArgumentList
+    hidden [string[]]$UninstallArgumentList
     hidden [string]$Path
+    hidden [string]$Tag
+    hidden [String]$Header
 
     [bool]Install() {
         If (!($this.DetectionMethod.Detected())) {
             $RetVal = Start-Process -FilePath $this.Path -ArgumentList $this.InstallArgumentList -NoNewWindow -Wait -PassThru
-            return ($this.ValidExitCodes -contains $RetVal)
+            Write-Host ("Return value: " + $RetVal.ExitCode)
+            return ($this.ValidExitCodes -contains $RetVal.ExitCode)
         } else {
             return $false
         }
@@ -44,7 +49,8 @@ Class Installer {
     [bool]Uninstall() {
         If ($this.DetectionMethod.Detected()) {
             $RetVal = Start-Process -FilePath $this.Path -ArgumentList $this.UninstallArgumentList -NoNewWindow -Wait -PassThru
-            return ($this.ValidExitCodes -contains $RetVal)
+            Write-Host ("Return value: " + $RetVal.ExitCode)
+            return ($this.ValidExitCodes -contains $RetVal.ExitCode)
         } else {
             return $false
         }
@@ -54,36 +60,48 @@ Class Installer {
 
 Class SetupInstaller : Installer {
 
-    SetupInstaller([string]$Path, [DetectionMethod]$DetectionMethod) {
+    SetupInstaller([string]$Path, [String[]]$InstallArgumentList, [String[]]$UninstallArgumentList, [DetectionMethod]$DetectionMethod) {
         $this.Path = $Path
         $this.FilePath = $Path
         $this.DetectionMethod = $DetectionMethod
         $this.ValidExitCodes = @(0,3010)
+        $this.InstallString = ($Path + $($out = "";$InstallArgumentList.ForEach({$out += (" " + $_)})))
+        $this.UninstallString = ($Path + $($out = "";$UninstallArgumentList.ForEach({$out += (" " + $_)})))
+        $this.Tag = [guid]::NewGuid()
+        $this.Header = (Get-Item $Path).Name
     }
 
-    SetupInstaller([string]$Path, [DetectionMethod]$DetectionMethod, [string]$Name) {
+    SetupInstaller([string]$Path, [String[]]$InstallArgumentList, [String[]]$UninstallArgumentList, [DetectionMethod]$DetectionMethod, [string]$Name) {
         $this.Path = $Path
         $this.FilePath = $Path
         $this.DetectionMethod = $DetectionMethod
         $this.Name = $Name
         $this.ValidExitCodes = @(0,3010)
+        $this.InstallString = ($Path + $($out = "";$InstallArgumentList.ForEach({$out += (" " + $_)})))
+        $this.UninstallString = ($Path + $($out = "";$UninstallArgumentList.ForEach({$out += (" " + $_)})))
+        $this.Tag = [guid]::NewGuid()
+        $this.Header = $Name
     }
 
-    SetupInstaller([string]$Path, [DetectionMethod]$DetectionMethod, [string]$Name, [Version]$Version) {
+    SetupInstaller([string]$Path, [String[]]$InstallArgumentList, [String[]]$UninstallArgumentList, [DetectionMethod]$DetectionMethod, [string]$Name, [Version]$Version) {
         $this.Path = $Path
         $this.FilePath = $Path
         $this.DetectionMethod = $DetectionMethod
         $this.Name = $Name
         $this.Version = $Version
         $this.ValidExitCodes = @(0,3010)
+        $this.InstallString = ($Path + $($out = "";$InstallArgumentList.ForEach({$out += (" " + $_)})))
+        $this.UninstallString = ($Path + $($out = "";$UninstallArgumentList.ForEach({$out += (" " + $_)})))
+        $this.Tag = [guid]::NewGuid()
+        $this.Header = $Name
     }
     
 }
 
 Class MSIInstaller : Installer {
 
-    [guid]$ProductCode
-    [guid]$UpgradeCode
+    [string]$ProductCode
+    [string]$UpgradeCode
     hidden [hashtable]$Properties
 
     MSIInstaller([string]$Path) {
@@ -103,14 +121,18 @@ Class MSIInstaller : Installer {
             $Record = $View.InvokeMethod("Fetch")
         }
         $this.Properties = $ProductProperties
-        $this.ProductCode = [guid]$ProductProperties.Item("ProductCode")
-        $this.UpgradeCode = [guid]$ProductProperties.Item("UpgradeCode")
+        $this.ProductCode = $ProductProperties.Item("ProductCode")
+        $this.UpgradeCode = $ProductProperties.Item("UpgradeCode")
         $this.Name = $ProductProperties.Item("ProductName")
         $this.Version = $ProductProperties.Item("ProductVersion")
 
         $this.DetectionMethod = [DetectionMethod]::new("MSI", $this.ProductCode)
-        $this.InstallArgumentList = @("-i", (Get-Item $Path).Name, "-qb-", "ALLUSERS=1", "REBOOT=r")
-        $this.UninstallArgumentList = @("-x", $ProductProperties.Item("UpgradeCode"), "-qb-", "ALLUSERS=1", "REBOOT=r")
+        $this.InstallArgumentList = @("-i", (Get-Item $Path).FullName, "-qb-", "ALLUSERS=1", "REBOOT=r")
+        $this.UninstallArgumentList = @("-x", $ProductProperties.Item("ProductCode"), "-qb-", "ALLUSERS=1", "REBOOT=r")
+        $this.InstallString = ($this.Path + $($out = "";($this.InstallArgumentList).ForEach({$out += (" " + $_)});$out))
+        $this.UninstallString = ($this.Path + $($out = "";($this.UninstallArgumentList).ForEach({$out += (" " + $_)});$out))
+        $this.Tag = [guid]::NewGuid()
+        $this.Header = $this.Name
     }
 
     [string]GetProductCode() {
@@ -127,12 +149,17 @@ Class SequenceItem {
 
     [Installer[]]$Installers
     [string]$Name
+    hidden [String]$Tag
+    hidden [String]$Header
 
     SequenceItem([Installer]$Installer) {
         $this.Name = $Installer.Name
         $NewInstallers = [System.Collections.ArrayList]::new()
         $NewInstallers.Add($Installer)
         $this.Installers = $NewInstallers
+        $this.Tag = "Installers"
+        $this.Header = $this.Name
+        $this.Installers.ForEach({ $_.Tag = $this.Tag + "\" + $_.Tag })
     }
 
     SequenceItem([string]$Name, [Installer]$Installer) {
@@ -140,11 +167,17 @@ Class SequenceItem {
         $NewInstallers = [System.Collections.ArrayList]::new()
         $NewInstallers.Add($Installer)
         $this.Installers = $NewInstallers
+        $this.Tag = "Installers"
+        $this.Header = $this.Name
+        $this.Installers.ForEach({ $_.Tag = $this.Tag + "\" + $_.Tag })
     }
 
     SequenceItem([string]$Name, [Installer[]]$Installers) {
         $this.Name = $Name
         $this.Installers = $Installers
+        $this.Tag = "Installers"
+        $this.Header = $this.Name
+        $this.Installers.ForEach({ $_.Tag = $this.Tag + "\" + $_.Tag })
     }
 
     [int]AddInstaller([Installer]$Sequence) {
@@ -163,20 +196,6 @@ Class SequenceItem {
         return ($this.Sequence.RemoveAt($index))
     }
 
-    [System.Windows.Controls.TreeViewItem]GetTreeViewItem([System.Windows.Controls.TreeViewItem]$Parent){
-        $TreeViewItem = [System.Windows.Controls.TreeViewItem]::new()
-        $TreeViewItem.Header = ("seq_" + ($this.Name -replace '[\W_]', ""))
-        $TreeViewItem.Name = ("seq_" + ($this.Name -replace '[\W_]', ""))
-        $TreeViewItem.Tag = ($Parent.Tag + "\" + $this.Name)
-        ForEach ($Installer in $this.Installers) {
-            $ChildItem = [System.Windows.Controls.TreeViewItem]::new()
-            $ChildItem.Header = ("inst_" + ($Installer.Name -replace '[\W_]', ""))
-            $ChildItem.Name = ("inst_" + ($Installer.Name -replace '[\W_]', ""))
-            $ChildItem.Tag = ($TreeViewItem.Tag + "\" + $Installer.Name)
-            $TreeViewItem.Items.Add($ChildItem)
-        }
-        return $TreeViewItem
-    }
 }
 
 Class InstallSequence {
@@ -214,24 +233,11 @@ Class InstallSequence {
         return $true
     }
 
-    [System.Windows.Controls.TreeViewItem]GetTreeViewItem(){
-        $TreeViewItem = [System.Windows.Controls.TreeViewItem]::new()
-        $TreeViewItem.Header = ("instSeq_" + ($this.Name -replace '[\W_]', ""))
-        $TreeViewItem.Name = ("instSeq_" + ($this.Name -replace '[\W_]', ""))
-        $TreeViewItem.Tag = $this.Name
-        ForEach ($Sequence in $this.Sequence) {
-            $ChildItem = $Sequence.GetTreeViewItem($TreeViewItem)
-            $ChildItem.Tag = ($TreeViewItem.Tag + "\" + $ChildItem.Tag)
-            $TreeViewItem.Items.Add($ChildItem)
-        }
-        return $TreeViewItem
-    }
-
 }
 
 Class PowerInstallerApp {
 
-    PowerInstallerApp([InstallSequence]$InstallSequence) {
+    PowerInstallerApp ($InstallSequence) {
 
         $XAML = @'
 <Window x:Class="PowerInstaller.MainWindow"
@@ -243,7 +249,7 @@ Class PowerInstallerApp {
     mc:Ignorable="d"
     Title="Power Installer" Height="350" Width="525">
     <Grid>
-        <TreeView x:Name="twInstallSequence" HorizontalAlignment="Left" Height="300" Margin="10,10,0,0" VerticalAlignment="Top" Width="450"/>
+        <TreeView x:Name="TreeView" HorizontalAlignment="Left" Height="300" Margin="10,10,0,0" VerticalAlignment="Top" Width="450"/>
     </Grid>
 </Window>
 '@
@@ -259,18 +265,79 @@ Class PowerInstallerApp {
         }
         
         <#
-         # NOT ABLE TO USE THIS IN CLASSES
-         # Load XAML Objects
-         $xaml.SelectNodes("//*[@Name]") | %{Set-Variable -Name "$($_.Name)" -Value $Form.FindName($_.Name)}
+            # NOT ABLE TO USE THIS IN CLASSES
+            # Load XAML Objects
+            $xaml.SelectNodes("//*[@Name]") | %{Set-Variable -Name "$($_.Name)" -Value $Form.FindName($_.Name)}
         #>
 
-        # // Initial Bindings
-        $twInstallSequence = $Form.FindName('twInstallSequence')
-        $twInstallSequence.Items.Add($InstallSequence.GetTreeViewItem())
+        $TreeView = $Form.FindName('TreeView')
+        try {
+            $NewTreeViewItem = New-Object System.Windows.Controls.TreeViewItem
+            $NewTreeViewItem.Header = $InstallSequence.Name
+            $NewTreeViewItem.Tag = $InstallSequence
+            [void]$TreeView.items.Add($NewTreeViewItem)
+        } catch {
+            Write-Host "Error adding $_ to the TreeView"
+        }
 
-        $Form.Add_SourceInitialized( {            [System.Windows.RoutedEventHandler]$Event = {                            <#if($_.OriginalSource -is [System.Windows.Controls.TreeViewItem]){                    $TreeItem = $_.OriginalSource                    $TreeItem.items.clear()                    $TreeItem.Items.Add($InstallSequence.GetTreeViewItem())                }#>            }            $twInstallSequence.AddHandler([System.Windows.Controls.TreeViewItem]::ExpandedEvent,$Event)        })
+        $Form.Add_SourceInitialized( {            [System.Windows.RoutedEventHandler]$Event = {                if($_.OriginalSource -is [System.Windows.Controls.TreeViewItem]){                    $TreeItem = $_.OriginalSource                    $TreeItem.items.clear()                    [PowerInstallerApp]::AddTreeViewItem($TreeItem)                }            }            $TreeView.AddHandler([System.Windows.Controls.TreeViewItem]::ExpandedEvent,$Event)        })
         
         $Form.ShowDialog() | Out-Null
 
     }
+
+    static [void]AddTreeViewItem($TreeViewItem) {        $ListInstaller = $false        If ($TreeViewItem.Tag -ne $null) {            $ParentObject = $TreeViewItem.Tag            Switch ((($ParentObject).GetType()).Name) {                "InstallSequence" {                    ($ParentObject.Sequence).ForEach({
+                        <#
+                        # create stack panel
+                        $StackPanel = [System.Windows.Controls.StackPanel]::new()
+                        $StackPanel.Orientation = [System.Windows.Controls.Orientation]::Horizontal
+
+                        # create Image
+                        $Image = [System.Windows.Controls.Image]::new()
+                        $Image.Source = [System.Windows.Media.Imaging.BitmapImage]::new([uri]::new("$PSScriptRoot\img\treeview\installsequence.bmp"))
+
+                        # Label
+                        $Label = [System.Windows.Controls.Label]::new()
+                        $Label.Content = $_.Name
+
+                        # Add into stack panel
+                        $StackPanel.Children.Add($Image)
+                        $StackPanel.Children.Add($Label)
+                        #>
+                        try {
+                            $NewTreeViewItem = New-Object System.Windows.Controls.TreeViewItem
+                            $NewTreeViewItem.Header = $_.Name
+                            $NewTreeViewItem.Tag = $_
+                            [void]$TreeViewItem.items.Add($NewTreeViewItem)
+                        } catch {
+                            Write-Host "Error adding $_ to the TreeView"
+                        }                    })                }                "SequenceItem" {                    ($ParentObject.Installers).ForEach({
+                        try {
+                            $NewTreeViewItem = New-Object System.Windows.Controls.TreeViewItem
+                            $NewTreeViewItem.Header = $_.Name
+                            $NewTreeViewItem.Tag = $_
+                            [void]$TreeViewItem.items.Add($NewTreeViewItem)
+                        } catch {
+                            Write-Host "Error adding $_ to the TreeView"
+                        }                    })                }                "SetupInstaller" {                    $ListInstaller = $true                }                "MSIInstaller" {                    $ListInstaller = $true                }                "DetectionMethod" {                    $ListInstaller = $true                    }                default {
+                    try {
+                        $NewTreeViewItem = New-Object System.Windows.Controls.TreeViewItem
+                        $NewTreeViewItem.Header = $ParentObject
+                        $NewTreeViewItem.Tag = $null
+                        [void]$TreeViewItem.items.Add($NewTreeViewItem)
+                    } catch {
+                        Write-Host "Error adding $_ to the TreeView"
+                    }                                }            }
+            If($ListInstaller) {                ForEach ($Property in (Get-Member -MemberType Property -InputObject ($TreeViewItem.Tag)).Name) {
+                    try {
+                        $NewTreeViewItem = New-Object System.Windows.Controls.TreeViewItem
+                        $NewTreeViewItem.Header = $Property
+                        $NewTreeViewItem.Tag = $ParentObject.($Property)
+                        [void]$TreeViewItem.items.Add($NewTreeViewItem)
+                    } catch {
+                        Write-Host "Error adding $_ to the TreeView"
+                    }                }            }
+        }
+    }
+
 }
